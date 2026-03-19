@@ -1,0 +1,166 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <stdexcept>
+#include <algorithm>
+#include <cctype>
+
+// Шаблонный класс стека на базе вектора (согласно конструкторской части) 
+template <typename T>
+class MyStack {
+private:
+    std::vector<T> data;
+public:
+    void push(T value) { data.push_back(value); }
+    T pop() {
+        if (isEmpty()) throw std::runtime_error("Ошибка: извлечение из пустого стека");
+        T value = data.back();
+        data.pop_back();
+        return value;
+    }
+    T peek() const {
+        if (isEmpty()) throw std::runtime_error("Ошибка: стек пуст");
+        return data.back();
+    }
+    bool isEmpty() const { return data.empty(); }
+};
+
+// Проверка типа числа (двоичное до 8 бит или десятичное) 
+bool isBinary(const std::string& s) {
+    if (s.empty() || s.length() > 8) return false;
+    for (char c : s) if (c != '0' && c != '1') return false;
+    return true;
+}
+
+bool isDecimal(const std::string& s) {
+    if (s.empty()) return false;
+    for (char c : s) if (!isdigit(c)) return false;
+    return true;
+}
+
+// Конвертация систем счисления 
+int binToDec(const std::string& bin) {
+    int res = 0;
+    for (char c : bin) res = res * 2 + (c - '0');
+    return res;
+}
+
+// Приоритеты операторов (Алгоритм сортировочной станции) 
+int getPriority(const std::string& op) {
+    if (op == "~") return 4;
+    if (op == "<<" || op == ">>") return 3;
+    if (op == "<" || op == ">" || op == "<=" || op == ">=") return 2;
+    if (op == "=" || op == "!=") return 1;
+    return 0;
+}
+
+// Разбиение входной строки на токены 
+std::vector<std::string> tokenize(const std::string& expr) {
+    std::vector<std::string> tokens;
+    for (size_t i = 0; i < expr.length(); ++i) {
+        if (isspace(expr[i])) continue;
+        
+        if (isdigit(expr[i])) {
+            std::string num;
+            while (i < expr.length() && isdigit(expr[i])) num += expr[i++];
+            tokens.push_back(num);
+            --i;
+        } else if (expr[i] == '(' || expr[i] == ')' || expr[i] == '~') {
+            tokens.push_back(std::string(1, expr[i]));
+        } else {
+            std::string op;
+            op += expr[i];
+            if (i + 1 < expr.length() && (expr[i+1] == '<' || expr[i+1] == '>' || expr[i+1] == '=')) {
+                op += expr[++i];
+            }
+            tokens.push_back(op);
+        }
+    }
+    return tokens;
+}
+
+// Преобразование в постфиксную нотацию 
+std::vector<std::string> toPostfix(const std::vector<std::string>& tokens) {
+    std::vector<std::string> output;
+    MyStack<std::string> operators;
+
+    for (const auto& token : tokens) {
+        if (isDecimal(token) || isBinary(token)) {
+            output.push_back(token);
+        } else if (token == "(") {
+            operators.push_back(token);
+        } else if (token == ")") {
+            while (!operators.isEmpty() && operators.peek() != "(") 
+                output.push_back(operators.pop());
+            if (operators.isEmpty()) throw std::runtime_error("Несогласованные скобки");
+            operators.pop();
+        } else {
+            while (!operators.isEmpty() && getPriority(operators.peek()) >= getPriority(token))
+                output.push_back(operators.pop());
+            operators.push_back(token);
+        }
+    }
+    while (!operators.isEmpty()) output.push_back(operators.pop());
+    return output;
+}
+
+std::string calculate(const std::vector<std::string>& postfix) {
+    MyStack<std::string> s;
+    for (const auto& t : postfix) {
+        if (isDecimal(t) || isBinary(t)) {
+            s.push(t);
+        } else if (t == "~") {
+            std::string val = s.pop();
+            if (!isBinary(val)) throw std::runtime_error("Операция ~ требует двоичного числа");
+            std::string res = "";
+            for (char c : val) res += (c == '0' ? '1' : '0');
+            s.push(res);
+        } else {
+            std::string right = s.pop();
+            std::string left = s.pop();
+            
+            if (t == "<<" || t == ">>") {
+                if (!isBinary(left)) throw std::runtime_error("Сдвиг только для двоичных чисел");
+                int shift = std::stoi(right);
+                std::string res = left;
+                if (t == "<<") for(int i=0; i<shift; ++i) res += '0';
+                else res = (shift >= (int)res.length()) ? "0" : res.substr(0, res.length() - shift);
+                s.push(res);
+            } else {
+                int a = isBinary(left) ? binToDec(left) : std::stoi(left);
+                int b = isBinary(right) ? binToDec(right) : std::stoi(right);
+                bool res = false;
+                if (t == "=") res = (a == b);
+                else if (t == "!=") res = (a != b);
+                else if (t == "<") res = (a < b);
+                else if (t == ">") res = (a > b);
+                else if (t == "<=") res = (a <= b);
+                else if (t == ">=") res = (a >= b);
+                s.push(res ? "1" : "0");
+            }
+        }
+    }
+    return s.pop();
+}
+
+int main() {
+    std::cout << "--- Интерпретатор выражений (Бауманка, ЛР5) ---\n";
+    std::cout << "Поддерживаются: ( ), ~, <<, >>, =, !=, <, >, <=, >=\n";
+    std::cout << "Введите 'выход' для завершения\n";
+
+    std::string line;
+    while (true) {
+        std::cout << "\n> ";
+        if (!std::getline(std::cin, line) || line == "выход") break;
+        if (line.empty()) continue;
+
+        try {
+            auto tokens = tokenize(line);
+            auto postfix = toPostfix(tokens);
+            std::cout << "Результат: " << calculate(postfix) << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Ошибка: " << e.what() << std::endl;
+        }
+    }
+    return 0;
+}
